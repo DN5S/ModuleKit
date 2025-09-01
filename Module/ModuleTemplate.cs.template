@@ -1,0 +1,162 @@
+using System;
+using Microsoft.Extensions.DependencyInjection;
+using TLink.Core.Module;
+using TLink.Core.MVU;
+// Add other necessary usings
+
+namespace TLink.Modules.YourModule;
+
+/// <summary>
+/// Brief description of what this module does
+/// </summary>
+[ModuleInfo("YourModule", "1.0.0", 
+    Dependencies = [], // Add module dependencies here e.g. ["Chat", "Translation"]
+    Description = "Module description",
+    Author = "Your Name",
+    Priority = 100)] // Lower priority loads first
+public class YourModule : ModuleBase
+{
+    // Module-specific fields
+    private YourModuleConfig? moduleConfig;
+    private YourModuleWindow? window;
+    private YourModuleViewModel? viewModel;
+    private Store<YourModuleState>? store;
+    
+    // Required properties - must match ModuleInfo attribute
+    public override string Name => "YourModule";
+    public override string Version => "1.0.0";
+    public override string[] Dependencies => []; // Must match attribute
+    
+    /// <summary>
+    /// LIFECYCLE STEP 1: Load module configuration
+    /// Called before RegisterServices to load configuration
+    /// </summary>
+    protected override void LoadConfiguration()
+    {
+        // IMPORTANT: Always load configuration here, not in RegisterServices
+        moduleConfig = GetModuleConfig<YourModuleConfig>();
+    }
+    
+    /// <summary>
+    /// LIFECYCLE STEP 2: Register services with DI container
+    /// Keep this method pure - no dynamic resolution or complex logic
+    /// </summary>
+    public override void RegisterServices(IServiceCollection services)
+    {
+        // IMPORTANT: Keep this method simple and pure
+        // Do NOT:
+        // - Access ModuleManager directly
+        // - Use complex lambdas with service resolution
+        // - Perform any I/O operations
+        // - Create configurations dynamically
+        
+        // DO:
+        // - Register services with simple constructors
+        // - Use factory patterns only when necessary
+        // - Register your module's configuration (loaded in LoadConfiguration)
+        
+        // Register configuration (already loaded in LoadConfiguration)
+        services.AddSingleton(moduleConfig!);
+        
+        // Register MVU store if using MVU pattern
+        services.AddSingleton<IStore<YourModuleState>>(_ =>
+        {
+            var store = new Store<YourModuleState>(
+                YourModuleState.Initial,
+                YourModuleUpdate.Update
+            );
+            
+            // Register effect handlers
+            // store.RegisterEffectHandler(new YourEffectHandler());
+            
+            return store;
+        });
+        
+        // Register view models
+        services.AddSingleton<YourModuleViewModel>();
+        
+        // Register module-specific services
+        // services.AddSingleton<IYourService, YourService>();
+    }
+    
+    /// <summary>
+    /// LIFECYCLE STEP 3: Initialize the module
+    /// Module is fully loaded, services are available
+    /// </summary>
+    public override void Initialize()
+    {
+        // IMPORTANT: Use dependency injection to get services
+        // Do NOT:
+        // - Access ModuleManager.GetModule() directly
+        // - Create services manually
+        // - Access other modules directly
+        
+        // DO:
+        // - Use Services.GetRequiredService<T>() for dependencies
+        // - Set up event subscriptions
+        // - Initialize UI components
+        
+        // Get services through DI
+        store = Services.GetRequiredService<IStore<YourModuleState>>();
+        viewModel = Services.GetRequiredService<YourModuleViewModel>();
+        
+        // Initialize view model
+        viewModel.Initialize(store);
+        
+        // Create UI window
+        window = new YourModuleWindow(viewModel, moduleConfig!, () =>
+        {
+            SetModuleConfig(moduleConfig!);
+        });
+        
+        // Subscribe to events from other modules via EventBus
+        // Subscriptions.Add(
+        //     EventBus.Listen<SomeEvent>()
+        //         .Subscribe(evt => HandleEvent(evt))
+        // );
+        
+        Logger.Information($"{Name} module initialized successfully");
+    }
+    
+    /// <summary>
+    /// Draw module UI each frame
+    /// </summary>
+    public override void DrawUI()
+    {
+        window?.Draw();
+    }
+    
+    /// <summary>
+    /// Draw module configuration in settings window
+    /// </summary>
+    public override void DrawConfiguration()
+    {
+        window?.DrawConfiguration();
+        // Or implement configuration UI directly here
+    }
+    
+    /// <summary>
+    /// Clean up resources when module is disposed
+    /// </summary>
+    public override void Dispose()
+    {
+        // Clean up in reverse order of initialization
+        window?.Dispose();
+        viewModel?.Dispose();
+        store?.Dispose();
+        
+        // Always call base dispose
+        base.Dispose();
+        GC.SuppressFinalize(this);
+    }
+}
+
+/// <summary>
+/// Module configuration class
+/// </summary>
+public class YourModuleConfig : ModuleConfiguration
+{
+    // Add your configuration properties here
+    public bool SomeOption { get; set; } = true;
+    public string SomeText { get; set; } = string.Empty;
+}
