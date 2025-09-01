@@ -1,6 +1,6 @@
 using System;
 
-namespace TLink.Core.Module;
+namespace ModuleKit.Module;
 
 /// <summary>
 /// Attribute to provide metadata about a module for automatic discovery and registration

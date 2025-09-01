@@ -6,7 +6,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 
-namespace TLink.Core.UI;
+namespace ModuleKit.UI;
 
 public static class LayoutHelpers
 {

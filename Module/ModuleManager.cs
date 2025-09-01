@@ -4,9 +4,9 @@ using System.Linq;
 using Dalamud.Plugin.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using TLink.Core.Configuration;
+using ModuleKit.Configuration;
 
-namespace TLink.Core.Module;
+namespace ModuleKit.Module;
 
 public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) : IDisposable
 {

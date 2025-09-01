@@ -1,6 +1,6 @@
 using System;
 
-namespace TLink.Core.MVU;
+namespace ModuleKit.MVU;
 
 public interface IState : ICloneable
 {

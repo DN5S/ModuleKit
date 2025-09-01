@@ -4,7 +4,7 @@ using System.Linq;
 using System.Reflection;
 using Dalamud.Plugin.Services;
 
-namespace TLink.Core.Module;
+namespace ModuleKit.Module;
 
 /// <summary>
 /// Registry for discovering and managing modules through reflection

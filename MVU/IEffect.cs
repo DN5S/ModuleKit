@@ -1,6 +1,6 @@
 using System.Threading.Tasks;
 
-namespace TLink.Core.MVU;
+namespace ModuleKit.MVU;
 
 /// <summary>
 /// Represents a side effect that should be executed after a state update.

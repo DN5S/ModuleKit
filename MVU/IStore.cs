@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 
-namespace TLink.Core.MVU;
+namespace ModuleKit.MVU;
 
 public interface IStore
 {

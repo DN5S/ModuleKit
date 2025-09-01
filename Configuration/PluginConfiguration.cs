@@ -6,7 +6,7 @@ using System.Text.Json.Serialization.Metadata;
 using Dalamud.Configuration;
 using Dalamud.Plugin;
 
-namespace TLink.Core.Configuration;
+namespace ModuleKit.Configuration;
 
 [Serializable]
 public class PluginConfiguration : IPluginConfiguration

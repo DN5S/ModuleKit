@@ -5,7 +5,7 @@ using System.Reactive.Subjects;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace TLink.Core.MVU;
+namespace ModuleKit.MVU;
 
 public delegate UpdateResult<TState> UpdateFunction<TState>(TState state, IAction action) 
     where TState : IState;

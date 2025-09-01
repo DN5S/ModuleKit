@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace TLink.Core.MVU;
+namespace ModuleKit.MVU;
 
 public record UpdateResult<TState>(TState NewState, IReadOnlyList<IEffect> Effects) 
     where TState : IState

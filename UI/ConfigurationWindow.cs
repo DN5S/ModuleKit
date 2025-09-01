@@ -4,10 +4,10 @@ using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
-using TLink.Core.Configuration;
-using TLink.Core.Module;
+using ModuleKit.Configuration;
+using ModuleKit.Module;
 
-namespace TLink.Core.UI;
+namespace ModuleKit.UI;
 
 public class ConfigurationWindow : Window, IDisposable
 {

@@ -1,6 +1,6 @@
 using System;
 
-namespace TLink.Core.Reactive;
+namespace ModuleKit.Reactive;
 
 /// <summary>
 /// Contract for event bus implementations

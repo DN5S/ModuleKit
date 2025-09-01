@@ -3,10 +3,10 @@ using System.Reactive.Disposables;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using Microsoft.Extensions.DependencyInjection;
-using TLink.Core.Configuration;
-using TLink.Core.Reactive;
+using ModuleKit.Configuration;
+using ModuleKit.Reactive;
 
-namespace TLink.Core.Module;
+namespace ModuleKit.Module;
 
 public abstract class ModuleBase : IModule
 {

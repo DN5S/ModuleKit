@@ -1,4 +1,4 @@
-namespace TLink.Core.Configuration;
+namespace ModuleKit.Configuration;
 
 public interface IConfiguration
 {

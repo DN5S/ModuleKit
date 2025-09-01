@@ -1,7 +1,7 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace TLink.Core.Module;
+namespace ModuleKit.Module;
 
 public interface IModule : IDisposable
 {

@@ -3,11 +3,10 @@ using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using Microsoft.Extensions.DependencyInjection;
-using TLink.Core.Configuration;
-using TLink.Core.Reactive;
-using TLink.Utils;
+using ModuleKit.Configuration;
+using ModuleKit.Reactive;
 
-namespace TLink.Core.Module;
+namespace ModuleKit.Module;
 
 /// <summary>
 /// Extension methods for consistent service registration across modules
@@ -30,7 +29,6 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton(globalServices.GetRequiredService<EventBus>());
         services.AddSingleton(globalServices.GetRequiredService<PluginConfiguration>());
         services.AddSingleton(globalServices.GetRequiredService<ModuleManager>());
-        services.AddSingleton(globalServices.GetRequiredService<SeStringProcessor>());
         
         return services;
     }
