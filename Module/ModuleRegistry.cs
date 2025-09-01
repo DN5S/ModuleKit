@@ -14,9 +14,11 @@ public class ModuleRegistry(IPluginLog logger)
     private readonly IPluginLog logger = logger ?? throw new ArgumentNullException(nameof(logger));
     private readonly Dictionary<string, Type> registeredModules = new();
     private readonly Dictionary<string, ModuleInfoAttribute> moduleInfos = new();
+    private readonly Dictionary<Type, Type?> moduleConfigurationTypes = new();
     
     public IReadOnlyDictionary<string, Type> RegisteredModules => registeredModules;
     public IReadOnlyDictionary<string, ModuleInfoAttribute> ModuleInfos => moduleInfos;
+    public IReadOnlyDictionary<Type, Type?> ModuleConfigurationTypes => moduleConfigurationTypes;
 
     /// <summary>
     /// Discovers all modules in the current assembly that inherit from ModuleBase
@@ -47,6 +49,7 @@ public class ModuleRegistry(IPluginLog logger)
                 var moduleInfo = moduleType.GetCustomAttribute<ModuleInfoAttribute>();
                 if (moduleInfo == null) continue;
                 
+                // Configuration type is now directly available in the attribute
                 RegisterModule(moduleInfo.Name, moduleType, moduleInfo);
                 logger.Information($"Discovered module: {moduleInfo.Name} v{moduleInfo.Version} [{moduleType.FullName}]");
             }
@@ -82,6 +85,11 @@ public class ModuleRegistry(IPluginLog logger)
         if (info != null)
         {
             moduleInfos[name] = info;
+            // Store configuration type from attribute
+            if (info.ConfigurationType != null)
+            {
+                moduleConfigurationTypes[moduleType] = info.ConfigurationType;
+            }
         }
         else
         {
@@ -90,6 +98,10 @@ public class ModuleRegistry(IPluginLog logger)
             if (attrInfo != null)
             {
                 moduleInfos[name] = attrInfo;
+                if (attrInfo.ConfigurationType != null)
+                {
+                    moduleConfigurationTypes[moduleType] = attrInfo.ConfigurationType;
+                }
             }
         }
     }
@@ -215,5 +227,28 @@ public class ModuleRegistry(IPluginLog logger)
         }
         
         return isValid;
+    }
+    
+    /// <summary>
+    /// Gets all configuration types used by registered modules for safe serialization
+    /// </summary>
+    public Dictionary<string, Type> GetSafeConfigurationTypes()
+    {
+        var safeTypes = new Dictionary<string, Type>
+        {
+            // Always include a base type
+            [typeof(Configuration.ModuleConfiguration).FullName!] = typeof(Configuration.ModuleConfiguration)
+        };
+
+        // Add all registered configuration types
+        foreach (var configType in moduleConfigurationTypes.Values)
+        {
+            if (configType != null && typeof(Configuration.ModuleConfiguration).IsAssignableFrom(configType))
+            {
+                safeTypes[configType.FullName!] = configType;
+            }
+        }
+        
+        return safeTypes;
     }
 }

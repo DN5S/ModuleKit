@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using Dalamud.Configuration;
 using Dalamud.Plugin;
+using ModuleKit.Module;
 
 namespace ModuleKit.Configuration;
 
@@ -24,25 +24,33 @@ public class PluginConfiguration : IPluginConfiguration
     private IDalamudPluginInterface? pluginInterface;
     
     [JsonIgnore]
-    private IJsonTypeInfoResolver? typeResolver;
+    private ModuleConfigurationJsonConverter? jsonConverter;
     
-    public void Initialize(IDalamudPluginInterface dalamudPluginInterface, IJsonTypeInfoResolver resolver)
+    [JsonIgnore]
+    private JsonSerializerOptions? serializerOptions;
+    
+    public void Initialize(IDalamudPluginInterface dalamudPluginInterface, ModuleRegistry? registry = null)
     {
-        this.pluginInterface = dalamudPluginInterface;
-        this.typeResolver = resolver;
+        pluginInterface = dalamudPluginInterface;
+        
+        // Get safe configuration types from registry if available
+        var safeTypes = registry?.GetSafeConfigurationTypes() ?? new Dictionary<string, Type>();
+        
+        jsonConverter = new ModuleConfigurationJsonConverter(safeTypes);
+        serializerOptions = new JsonSerializerOptions 
+        { 
+            WriteIndented = true,
+            Converters = { jsonConverter }
+        };
+        
         Load();
     }
     
     public void Save()
     {
-        if (typeResolver != null)
+        if (serializerOptions != null)
         {
-            var options = new JsonSerializerOptions 
-            { 
-                TypeInfoResolver = typeResolver,
-                WriteIndented = true 
-            };
-            ModuleConfigsJson = JsonSerializer.Serialize(ModuleConfigs, options);
+            ModuleConfigsJson = JsonSerializer.Serialize(ModuleConfigs, serializerOptions);
         }
         pluginInterface?.SavePluginConfig(this);
     }
@@ -53,13 +61,12 @@ public class PluginConfiguration : IPluginConfiguration
         if (config is PluginConfiguration pluginConfig && !string.IsNullOrEmpty(pluginConfig.ModuleConfigsJson))
         {
             Version = pluginConfig.Version;
-            if (typeResolver != null)
+            if (serializerOptions != null)
             {
-                var options = new JsonSerializerOptions { TypeInfoResolver = typeResolver };
                 try
                 {
                     ModuleConfigs = JsonSerializer.Deserialize<Dictionary<string, ModuleConfiguration>>(
-                        pluginConfig.ModuleConfigsJson, options) ?? new Dictionary<string, ModuleConfiguration>();
+                        pluginConfig.ModuleConfigsJson, serializerOptions) ?? new Dictionary<string, ModuleConfiguration>();
                 }
                 catch
                 {
@@ -82,6 +89,14 @@ public class PluginConfiguration : IPluginConfiguration
         var key = $"Module.{moduleName}";
         if (ModuleConfigs.TryGetValue(key, out var config) && config is T typedConfig)
         {
+            // Check if migration is needed
+            var latestVersion = new T().ConfigVersion;
+            if (typedConfig.ConfigVersion < latestVersion)
+            {
+                typedConfig.Migrate(typedConfig.ConfigVersion, latestVersion);
+                typedConfig.ConfigVersion = latestVersion;
+                Save();
+            }
             return typedConfig;
         }
         
@@ -131,8 +146,14 @@ public class PluginConfiguration : IPluginConfiguration
 }
 
 // Pure base class for module configurations
-public class ModuleConfiguration
+public class ModuleConfiguration : IMigratableConfiguration
 {
     public string ModuleName { get; set; } = string.Empty;
     public bool IsEnabled { get; set; } = true;
+    public int ConfigVersion { get; set; } = 1;
+    
+    public virtual void Migrate(int fromVersion, int toVersion)
+    {
+        // Override in derived classes to handle configuration migrations
+    }
 }

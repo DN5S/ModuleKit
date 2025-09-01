@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Dalamud.Plugin.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -10,12 +11,17 @@ namespace ModuleKit.Module;
 
 public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) : IDisposable
 {
-    private readonly List<IModule> modules = [];
-    private readonly Dictionary<string, IServiceProvider> moduleServices = new();
+    private readonly List<ModuleInstance> moduleInstances = [];
     private readonly ServiceCollection sharedServices = new();
     private ModuleRegistry? registry;
     
-    public IReadOnlyList<IModule> LoadedModules => modules.AsReadOnly();
+    public IReadOnlyList<IModule> LoadedModules => moduleInstances
+        .Where(mi => mi.IsHealthy)
+        .Select(mi => mi.Module)
+        .ToList()
+        .AsReadOnly();
+    
+    public IReadOnlyList<ModuleInstance> AllModuleInstances => moduleInstances.AsReadOnly();
     public ModuleRegistry Registry => registry ??= new ModuleRegistry(logger);
 
     public void LoadModule<T>() where T : IModule, new()
@@ -24,116 +30,131 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
         LoadModule(module);
     }
     
+    public async Task LoadModuleAsync<T>() where T : IModule, new()
+    {
+        var module = new T();
+        await LoadModuleAsync(module);
+    }
+    
     public void LoadModule(IModule module)
     {
+        Task.Run(async () => await LoadModuleAsync(module)).GetAwaiter().GetResult();
+    }
+    
+    public async Task LoadModuleAsync(IModule module)
+    {
         ArgumentNullException.ThrowIfNull(module);
-
+        
+        var moduleInstance = new ModuleInstance(module);
+        
+        if (moduleInstances.Any(mi => mi.Module.Name == module.Name))
+        {
+            logger.Warning($"Module {module.Name} is already loaded");
+            return;
+        }
+        
         try
         {
-            if (modules.Any(m => m.Name == module.Name))
-            {
-                logger.Warning($"Module {module.Name} is already loaded");
-                return;
-            }
+            moduleInstance.MarkAsInitializing();
             
+            // Validate dependencies
             foreach (var dependency in module.Dependencies)
             {
-                if (modules.All(m => m.Name != dependency))
+                var depInstance = moduleInstances.FirstOrDefault(mi => mi.Module.Name == dependency);
+                if (depInstance is not { IsHealthy: true })
                 {
-                    logger.Error($"Module {module.Name} requires {dependency} which is not loaded");
-                    throw new InvalidOperationException($"Module {module.Name} requires {dependency} which is not loaded");
+                    throw new InvalidOperationException($"Module {module.Name} requires {dependency} which is not loaded or healthy");
                 }
             }
             
-            // Step 1: Register shared services from this module to the central collection
+            // Register shared services
             module.RegisterSharedServices(sharedServices);
             
-            // Step 2: Create a service collection for this module
+            // Create module-specific service collection
             var services = new ServiceCollection();
-            
-            // Step 3: Add all standard services
             services.AddModuleServices(globalServices);
             
-            // Step 4: Add all shared services from previously loaded modules
             foreach (var descriptor in sharedServices)
             {
                 services.TryAdd(descriptor);
             }
             
-            // Step 5: Let the module register its own specific services
             module.RegisterServices(services);
             
-            // Step 6: Build the service provider
+            // Build and store service provider
             var moduleProvider = services.BuildServiceProvider();
-            moduleServices[module.Name] = moduleProvider;
+            moduleInstance.ServiceProvider = moduleProvider;
             
             if (module is ModuleBase moduleBase)
             {
                 moduleBase.InjectDependencies(moduleProvider);
             }
             
-            module.Initialize();
-            modules.Add(module);
+            // Initialize with async support
+            await module.InitializeAsync();
+            
+            moduleInstance.MarkAsRunning();
+            moduleInstances.Add(moduleInstance);
             
             logger.Information($"Loaded module: {module.Name} v{module.Version}");
         }
         catch (Exception ex)
         {
-            logger.Error(ex, $"Failed to load module: {module.Name}");
-            throw;
+            moduleInstance.MarkAsFailed(ex);
+            moduleInstances.Add(moduleInstance);
+            
+            logger.Error(ex, $"Failed to load module: {module.Name}. Module marked as failed.");
         }
     }
     
     public void UnloadModule(string moduleName)
     {
-        var module = modules.FirstOrDefault(m => m.Name == moduleName);
-        if (module == null) return;
+        var moduleInstance = moduleInstances.FirstOrDefault(mi => mi.Module.Name == moduleName);
+        if (moduleInstance == null) return;
         
-        var dependents = modules.Where(m => m.Dependencies.Contains(moduleName)).ToList();
+        var dependents = moduleInstances
+            .Where(mi => mi.Module.Dependencies.Contains(moduleName))
+            .ToList();
+        
         foreach (var dependent in dependents)
         {
-            UnloadModule(dependent.Name);
+            UnloadModule(dependent.Module.Name);
         }
         
-        module.Dispose();
-        modules.Remove(module);
-        
-        if (moduleServices.TryGetValue(moduleName, out var provider))
-        {
-            if (provider is IDisposable disposable)
-                disposable.Dispose();
-            moduleServices.Remove(moduleName);
-        }
+        moduleInstance.MarkAsDisposed();
+        moduleInstances.Remove(moduleInstance);
         
         logger.Information($"Unloaded module: {moduleName}");
     }
     
     public void DrawUI()
     {
-        foreach (var module in modules)
+        foreach (var instance in moduleInstances.Where(mi => mi.IsHealthy))
         {
             try
             {
-                module.DrawUI();
+                instance.Module.DrawUI();
             }
             catch (Exception ex)
             {
-                logger.Error(ex, $"Error drawing UI for module: {module.Name}");
+                logger.Error(ex, $"Error drawing UI for module: {instance.Module.Name}");
+                instance.MarkAsFailed(ex);
             }
         }
     }
     
     public void DrawConfiguration()
     {
-        foreach (var module in modules)
+        foreach (var instance in moduleInstances.Where(mi => mi.IsHealthy))
         {
             try
             {
-                module.DrawConfiguration();
+                instance.Module.DrawConfiguration();
             }
             catch (Exception ex)
             {
-                logger.Error(ex, $"Error drawing configuration for module: {module.Name}");
+                logger.Error(ex, $"Error drawing configuration for module: {instance.Module.Name}");
+                instance.MarkAsFailed(ex);
             }
         }
     }
@@ -141,7 +162,7 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
     /// <summary>
     /// Discovers and loads all registered modules
     /// </summary>
-    public void LoadAllRegisteredModules(PluginConfiguration configuration)
+    public async Task LoadAllRegisteredModulesAsync(PluginConfiguration configuration)
     {
         Registry.DiscoverModules();
         
@@ -152,11 +173,11 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
         
         var modulesToLoad = Registry.GetModulesInLoadOrder();
         
+        // Load modules sequentially to respect dependencies
         foreach (var moduleName in modulesToLoad)
         {
             var moduleConfig = configuration.GetModuleConfig(moduleName);
             
-            // Check if the module should be loaded based on configuration
             if (!moduleConfig.IsEnabled)
             {
                 logger.Information($"Skipping disabled module: {moduleName}");
@@ -166,16 +187,14 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
             var module = Registry.CreateModuleInstance(moduleName);
             if (module != null)
             {
-                try
-                {
-                    LoadModule(module);
-                }
-                catch (Exception ex)
-                {
-                    logger.Error(ex, $"Failed to load module: {moduleName}");
-                }
+                await LoadModuleAsync(module);
             }
         }
+    }
+    
+    public void LoadAllRegisteredModules(PluginConfiguration configuration)
+    {
+        Task.Run(async () => await LoadAllRegisteredModulesAsync(configuration)).GetAwaiter().GetResult();
     }
     
     /// <summary>
@@ -191,7 +210,17 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
     /// </summary>
     public IModule? GetModule(string moduleName)
     {
-        return modules.FirstOrDefault(m => m.Name == moduleName);
+        return moduleInstances
+            .FirstOrDefault(mi => mi.Module.Name == moduleName && mi.IsHealthy)?
+            .Module;
+    }
+    
+    /// <summary>
+    /// Gets a module instance wrapper by name, including failed modules
+    /// </summary>
+    public ModuleInstance? GetModuleInstance(string moduleName)
+    {
+        return moduleInstances.FirstOrDefault(mi => mi.Module.Name == moduleName);
     }
     
     /// <summary>
@@ -201,12 +230,11 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
     {
         var dependents = new List<string>();
         
-        // Check loaded modules
-        foreach (var module in modules)
+        foreach (var instance in moduleInstances)
         {
-            if (module.Dependencies.Contains(moduleName))
+            if (instance.Module.Dependencies.Contains(moduleName))
             {
-                dependents.Add(module.Name);
+                dependents.Add(instance.Module.Name);
             }
         }
         
@@ -299,7 +327,7 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
             var moduleName = kvp.Key;
             var moduleConfig = configuration.GetModuleConfig(moduleName);
             
-            var isCurrentlyLoaded = modules.Any(m => m.Name == moduleName);
+            var isCurrentlyLoaded = moduleInstances.Any(mi => mi.Module.Name == moduleName && mi.IsHealthy);
             
             switch (moduleConfig.IsEnabled)
             {
@@ -337,9 +365,10 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
                 foreach (var dep in moduleInfo.Dependencies)
                 {
                     var depConfig = configuration.GetModuleConfig(dep);
-                    if (!depConfig.IsEnabled || modules.All(m => m.Name != dep))
+                    var depInstance = moduleInstances.FirstOrDefault(mi => mi.Module.Name == dep);
+                    if (!depConfig.IsEnabled || depInstance is not { IsHealthy: true })
                     {
-                        logger.Warning($"Cannot load module {moduleName} because dependency {dep} is not enabled");
+                        logger.Warning($"Cannot load module {moduleName} because dependency {dep} is not enabled or healthy");
                         dependenciesSatisfied = false;
                         break;
                     }
@@ -385,11 +414,48 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
         return true;
     }
     
+    /// <summary>
+    /// Attempts to recover failed modules by reinitializing them
+    /// </summary>
+    public async Task RecoverFailedModulesAsync()
+    {
+        var failedModules = moduleInstances
+            .Where(mi => mi is { Status: ModuleStatus.Failed, InitializationAttempts: < 3 })
+            .ToList();
+        
+        foreach (var instance in failedModules)
+        {
+            logger.Information($"Attempting to recover module: {instance.Module.Name}");
+            
+            if (instance.TryRecover())
+            {
+                moduleInstances.Remove(instance);
+                await LoadModuleAsync(instance.Module);
+            }
+        }
+    }
+    
+    public void RecoverFailedModules()
+    {
+        Task.Run(async () => await RecoverFailedModulesAsync()).GetAwaiter().GetResult();
+    }
+    
+    /// <summary>
+    /// Gets diagnostic information about all modules
+    /// </summary>
+    public Dictionary<string, ModuleStatus> GetModuleStatuses()
+    {
+        return moduleInstances.ToDictionary(
+            mi => mi.Module.Name,
+            mi => mi.Status
+        );
+    }
+    
     public void Dispose()
     {
-        foreach (var module in modules.ToList())
+        foreach (var instance in moduleInstances.ToList())
         {
-            UnloadModule(module.Name);
+            UnloadModule(instance.Module.Name);
         }
         GC.SuppressFinalize(this);   
     }

@@ -10,13 +10,10 @@ namespace ModuleKit.MVU;
 public delegate UpdateResult<TState> UpdateFunction<TState>(TState state, IAction action) 
     where TState : IState;
 
-public delegate Task MiddlewareDelegate<in TState>(TState state, IAction action, Func<Task> next) 
-    where TState : IState;
-
 public class Store<TState>(TState initialState, UpdateFunction<TState> updateFunction) : IStore<TState>, IDisposable
     where TState : IState
 {
-    private readonly List<MiddlewareDelegate<TState>> middlewares = [];
+    private readonly List<IMiddleware<TState>> middlewares = [];
     private readonly Dictionary<Type, object> effectHandlers = new();
     private readonly BehaviorSubject<TState> stateSubject = new(initialState);
     private readonly Subject<IAction> actionSubject = new();
@@ -28,8 +25,9 @@ public class Store<TState>(TState initialState, UpdateFunction<TState> updateFun
     public IObservable<TState> StateChanged => stateSubject;
     public IObservable<IAction> ActionDispatched => actionSubject;
 
-    public void UseMiddleware(MiddlewareDelegate<TState> middleware)
+    public void UseMiddleware(IMiddleware<TState> middleware)
     {
+        ArgumentNullException.ThrowIfNull(middleware);
         middlewares.Add(middleware);
     }
     
@@ -65,10 +63,11 @@ public class Store<TState>(TState initialState, UpdateFunction<TState> updateFun
     private Func<Task> BuildMiddlewarePipeline(IAction action)
     {
         return middlewares
-               .Reverse<MiddlewareDelegate<TState>>()
+               .AsEnumerable()
+               .Reverse()
                .Aggregate(
                    (Func<Task>)CoreUpdate,
-                   (next, middleware) => () => middleware(State, action, next)
+                   (next, middleware) => () => middleware.ProcessAsync(State, action, next)
                );
 
         async Task CoreUpdate()

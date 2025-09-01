@@ -15,4 +15,5 @@ public class ModuleInfoAttribute(string name, string version) : Attribute
     public string Author { get; set; } = string.Empty;
     public bool EnabledByDefault { get; set; } = true;
     public int Priority { get; set; } // Lower numbers load first
+    public Type? ConfigurationType { get; set; }
 }

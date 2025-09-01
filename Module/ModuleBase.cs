@@ -1,5 +1,6 @@
 using System;
 using System.Reactive.Disposables;
+using System.Threading.Tasks;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +21,7 @@ public abstract class ModuleBase : IModule
     public abstract string Name { get; }
     public abstract string Version { get; }
     public virtual string[] Dependencies => [];
+    public virtual Type? ConfigurationType => null;
     
     public abstract void RegisterServices(IServiceCollection services);
 
@@ -29,6 +31,12 @@ public abstract class ModuleBase : IModule
 
     public virtual void Initialize()
     {
+    }
+    
+    public virtual async Task InitializeAsync()
+    {
+        Initialize();
+        await Task.CompletedTask;
     }
     
     public virtual void DrawUI()
