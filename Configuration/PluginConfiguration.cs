@@ -33,7 +33,7 @@ public class PluginConfiguration : IPluginConfiguration
     {
         pluginInterface = dalamudPluginInterface;
         
-        // Get safe configuration types from registry if available
+        // Get safe configuration types from the registry if available
         var safeTypes = registry?.GetSafeConfigurationTypes() ?? new Dictionary<string, Type>();
         
         jsonConverter = new ModuleConfigurationJsonConverter(safeTypes);
@@ -148,7 +148,7 @@ public class PluginConfiguration : IPluginConfiguration
 // Pure base class for module configurations
 public class ModuleConfiguration : IMigratableConfiguration
 {
-    public string ModuleName { get; set; } = string.Empty;
+    public string ModuleName { get; init; } = string.Empty;
     public bool IsEnabled { get; set; } = true;
     public int ConfigVersion { get; set; } = 1;
     

@@ -14,7 +14,7 @@ public class ModuleConfigurationJsonConverter : JsonConverter<ModuleConfiguratio
     {
         this.safeTypeRegistry = safeTypeRegistry ?? new Dictionary<string, Type>();
         
-        // Always include base type
+        // Always include a base type
         if (!this.safeTypeRegistry.ContainsKey(typeof(ModuleConfiguration).FullName!))
         {
             this.safeTypeRegistry[typeof(ModuleConfiguration).FullName!] = typeof(ModuleConfiguration);
