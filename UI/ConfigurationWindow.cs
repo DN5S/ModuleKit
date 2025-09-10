@@ -16,6 +16,11 @@ public class ConfigurationWindow : Window, IDisposable
     private readonly PluginConfiguration configuration;
     private string selectedModuleName = string.Empty;
     
+    // UI feedback state
+    private bool isApplyingChanges;
+    private string? lastErrorMessage;
+    private DateTime? lastErrorTime;
+    
     public ConfigurationWindow(ModuleManager moduleManager, PluginConfiguration configuration) 
         : base("Configuration###Config", ImGuiWindowFlags.None)
     {
@@ -28,6 +33,34 @@ public class ConfigurationWindow : Window, IDisposable
     
     public override void Draw()
     {
+        // Display any error messages at the top
+        if (lastErrorMessage != null && lastErrorTime.HasValue)
+        {
+            var timeSinceError = DateTime.Now - lastErrorTime.Value;
+            if (timeSinceError.TotalSeconds < 5)
+            {
+                ImGui.PushStyleColor(ImGuiCol.Text, LayoutHelpers.Colors.Error);
+                ImGui.TextWrapped($"Error: {lastErrorMessage}");
+                ImGui.PopStyleColor();
+                ImGui.Separator();
+            }
+            else
+            {
+                // Clear old error messages
+                lastErrorMessage = null;
+                lastErrorTime = null;
+            }
+        }
+        
+        // Show loading indicator if applying changes
+        if (isApplyingChanges)
+        {
+            ImGui.PushStyleColor(ImGuiCol.Text, LayoutHelpers.Colors.Info);
+            ImGui.Text("Applying configuration changes...");
+            ImGui.PopStyleColor();
+            ImGui.Separator();
+        }
+        
         using var tabBar = ImRaii.TabBar("ConfigTabs");
         if (!tabBar) return;
         
@@ -204,6 +237,12 @@ public class ConfigurationWindow : Window, IDisposable
                     var currentEnabled = moduleConfig.IsEnabled;
                     var checkboxEnabled = currentEnabled;
                     
+                    // Disable checkbox while applying changes
+                    if (isApplyingChanges)
+                    {
+                        ImGui.BeginDisabled();
+                    }
+                    
                     if (ImGui.Checkbox($"##Enable{moduleName}", ref checkboxEnabled))
                     {
                         switch (currentEnabled)
@@ -225,7 +264,7 @@ public class ConfigurationWindow : Window, IDisposable
                                     moduleConfig.IsEnabled = false;
                                     configuration.SetModuleConfig(moduleName, moduleConfig);
                                     configuration.Save();
-                                    Task.Run(async () => await moduleManager.ApplyConfigurationChangesAsync(configuration).ConfigureAwait(false));
+                                    ApplyConfigurationChangesAsync();
                                 }
 
                                 break;
@@ -245,12 +284,17 @@ public class ConfigurationWindow : Window, IDisposable
                                     moduleConfig.IsEnabled = true;
                                     configuration.SetModuleConfig(moduleName, moduleConfig);
                                     configuration.Save();
-                                    Task.Run(async () => await moduleManager.ApplyConfigurationChangesAsync(configuration).ConfigureAwait(false));
+                                    ApplyConfigurationChangesAsync();
                                 }
 
                                 break;
                             }
                         }
+                    }
+                    
+                    if (isApplyingChanges)
+                    {
+                        ImGui.EndDisabled();
                     }
                     
                     if (ImGui.IsItemHovered())
@@ -358,6 +402,37 @@ public class ConfigurationWindow : Window, IDisposable
                 ImGui.TextColored(LayoutHelpers.Colors.Error, $"Error drawing module configuration: {ex.Message}");
             }
         }
+    }
+    
+    private void ApplyConfigurationChangesAsync()
+    {
+        if (isApplyingChanges)
+        {
+            // Already applying changes, prevent concurrent execution
+            return;
+        }
+        
+        isApplyingChanges = true;
+        lastErrorMessage = null;
+        lastErrorTime = null;
+        
+        Task.Run(async () =>
+        {
+            try
+            {
+                await moduleManager.ApplyConfigurationChangesAsync(configuration).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // Capture error for UI display
+                lastErrorMessage = ex.Message;
+                lastErrorTime = DateTime.Now;
+            }
+            finally
+            {
+                isApplyingChanges = false;
+            }
+        });
     }
     
     public void Dispose()

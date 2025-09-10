@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Plugin.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,6 +14,7 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
 {
     private readonly List<ModuleInstance> moduleInstances = [];
     private readonly ServiceCollection sharedServices = new();
+    private readonly SemaphoreSlim configurationSemaphore = new(1, 1);
     private ModuleRegistry? registry;
     
     public IReadOnlyList<IModule> LoadedModules => moduleInstances
@@ -372,18 +374,25 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
     
     /// <summary>
     /// Applies configuration changes by loading/unloading modules as needed
+    /// Thread-safe: Only one configuration change can be processed at a time
     /// </summary>
     public async Task ApplyConfigurationChangesAsync(PluginConfiguration configuration)
     {
-        // First, discover all modules if not already done
-        if (Registry.ModuleInfos.Count == 0)
+        // Prevent concurrent configuration changes to avoid race conditions
+        await configurationSemaphore.WaitAsync().ConfigureAwait(false);
+        try
         {
-            Registry.DiscoverModules();
-        }
-        
-        // Build list of modules that should be loaded based on config
-        var modulesToLoad = new HashSet<string>();
-        var modulesToUnload = new HashSet<string>();
+            logger.Information("Starting configuration changes");
+            
+            // First, discover all modules if not already done
+            if (Registry.ModuleInfos.Count == 0)
+            {
+                Registry.DiscoverModules();
+            }
+            
+            // Build list of modules that should be loaded based on config
+            var modulesToLoad = new HashSet<string>();
+            var modulesToUnload = new HashSet<string>();
         
         foreach (var kvp in Registry.ModuleInfos)
         {
@@ -429,31 +438,37 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
                 {
                     var depConfig = configuration.GetModuleConfig(dep);
                     var depInstance = moduleInstances.FirstOrDefault(mi => mi.Module.Name == dep);
-                    if (!depConfig.IsEnabled || depInstance is not { IsHealthy: true })
-                    {
-                        logger.Warning($"Cannot load module {moduleName} because dependency {dep} is not enabled or healthy");
-                        dependenciesSatisfied = false;
-                        break;
-                    }
+                    if (depConfig.IsEnabled && depInstance is { IsHealthy: true }) continue;
+                    logger.Warning($"Cannot load module {moduleName} because dependency {dep} is not enabled or healthy");
+                    dependenciesSatisfied = false;
+                    break;
                 }
-                
-                if (dependenciesSatisfied)
+
+                if (!dependenciesSatisfied) continue;
+                var module = Registry.CreateModuleInstance(moduleName);
+                if (module == null) continue;
+                try
                 {
-                    var module = Registry.CreateModuleInstance(moduleName);
-                    if (module != null)
-                    {
-                        try
-                        {
-                            logger.Information($"Loading module {moduleName} due to configuration change");
-                            await LoadModuleAsync(module).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            logger.Error(ex, $"Failed to load module: {moduleName}");
-                        }
-                    }
+                    logger.Information($"Loading module {moduleName} due to configuration change");
+                    await LoadModuleAsync(module).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    logger.Error(ex, $"Failed to load module: {moduleName}");
                 }
             }
+        }
+            
+            logger.Information("Configuration changes completed successfully");
+        }
+        catch (Exception ex)
+        {
+            logger.Error(ex, "Failed to apply configuration changes");
+            throw;
+        }
+        finally
+        {
+            configurationSemaphore.Release();
         }
     }
     
@@ -463,18 +478,9 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
     public bool AreDependenciesSatisfied(string moduleName, PluginConfiguration configuration)
     {
         var moduleInfo = Registry.ModuleInfos.GetValueOrDefault(moduleName);
-        if (moduleInfo == null) return false;
-        
-        foreach (var dep in moduleInfo.Dependencies)
-        {
-            var depConfig = configuration.GetModuleConfig(dep);
-            if (!depConfig.IsEnabled)
-            {
-                return false;
-            }
-        }
-        
-        return true;
+        return moduleInfo != null && moduleInfo.Dependencies
+            .Select(configuration.GetModuleConfig)
+            .All(depConfig => depConfig.IsEnabled);
     }
     
     /// <summary>
@@ -489,12 +495,10 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
         foreach (var instance in failedModules)
         {
             logger.Information($"Attempting to recover module: {instance.Module.Name}");
-            
-            if (instance.TryRecover())
-            {
-                moduleInstances.Remove(instance);
-                await LoadModuleAsync(instance.Module).ConfigureAwait(false);
-            }
+
+            if (!instance.TryRecover()) continue;
+            moduleInstances.Remove(instance);
+            await LoadModuleAsync(instance.Module).ConfigureAwait(false);
         }
     }
     
@@ -520,6 +524,7 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
         {
             UnloadModule(instance.Module.Name);
         }
+        configurationSemaphore.Dispose();
         GC.SuppressFinalize(this);   
     }
 }
