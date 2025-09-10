@@ -373,7 +373,7 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
     /// <summary>
     /// Applies configuration changes by loading/unloading modules as needed
     /// </summary>
-    public void ApplyConfigurationChanges(PluginConfiguration configuration)
+    public async Task ApplyConfigurationChangesAsync(PluginConfiguration configuration)
     {
         // First, discover all modules if not already done
         if (Registry.ModuleInfos.Count == 0)
@@ -445,7 +445,7 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
                         try
                         {
                             logger.Information($"Loading module {moduleName} due to configuration change");
-                            Task.Run(async () => await LoadModuleAsync(module).ConfigureAwait(false)).GetAwaiter().GetResult();
+                            await LoadModuleAsync(module).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {

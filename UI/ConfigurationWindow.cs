@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Numerics;
+using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
@@ -224,7 +225,7 @@ public class ConfigurationWindow : Window, IDisposable
                                     moduleConfig.IsEnabled = false;
                                     configuration.SetModuleConfig(moduleName, moduleConfig);
                                     configuration.Save();
-                                    moduleManager.ApplyConfigurationChanges(configuration);
+                                    Task.Run(async () => await moduleManager.ApplyConfigurationChangesAsync(configuration).ConfigureAwait(false));
                                 }
 
                                 break;
@@ -244,7 +245,7 @@ public class ConfigurationWindow : Window, IDisposable
                                     moduleConfig.IsEnabled = true;
                                     configuration.SetModuleConfig(moduleName, moduleConfig);
                                     configuration.Save();
-                                    moduleManager.ApplyConfigurationChanges(configuration);
+                                    Task.Run(async () => await moduleManager.ApplyConfigurationChangesAsync(configuration).ConfigureAwait(false));
                                 }
 
                                 break;
