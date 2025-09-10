@@ -109,18 +109,42 @@ public class Store<TState>(TState initialState, UpdateFunction<TState> updateFun
         var type = state.GetType();
         var versionProp = type.GetProperty(nameof(IState.Version));
         
-        if (versionProp?.CanWrite == true)
+        if (versionProp?.CanWrite != true)
+            return state;
+
+        if (type.IsRecord())
         {
-            if (type.IsRecord())
-            {
-                // Create a shallow copy and update the version
-                var newState = (TState)state.Clone();
-                versionProp.SetValue(newState, newVersion);
-                return newState;
-            }
-            versionProp.SetValue(state, newVersion);
+            // Records have built-in cloning support
+            var clonedState = (TState)state.Clone();
+            versionProp.SetValue(clonedState, newVersion);
+            return clonedState;
         }
-        return state;
+        try
+        {
+            // Try to create a new instance via copy constructor if available
+            var copyConstructor = type.GetConstructor([type]);
+            TState copiedState;
+            if (copyConstructor != null)
+            {
+                copiedState = (TState)copyConstructor.Invoke([state]);
+            }
+            else
+            {
+                // Use JSON serialization as a fallback for deep copy
+                var json = System.Text.Json.JsonSerializer.Serialize(state);
+                copiedState = System.Text.Json.JsonSerializer.Deserialize<TState>(json)!;
+            }
+            
+            versionProp.SetValue(copiedState, newVersion);
+            return copiedState;
+        }
+        catch
+        {
+            // If all copy attempts fail, throw to prevent state corruption
+            throw new InvalidOperationException(
+                $"State type {type.Name} must be a record type or provide a copy constructor to ensure immutability. " +
+                "Consider using a record type for state objects.");
+        }
     }
     
     public void Dispose()

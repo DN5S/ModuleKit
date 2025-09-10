@@ -27,7 +27,7 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
     public void LoadModule<T>() where T : IModule, new()
     {
         var module = new T();
-        LoadModule(module);
+        _ = LoadModule(module);
     }
     
     public async Task LoadModuleAsync<T>() where T : IModule, new()
@@ -36,9 +36,9 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
         await LoadModuleAsync(module);
     }
     
-    public void LoadModule(IModule module)
+    public async Task LoadModule(IModule module)
     {
-        Task.Run(async () => await LoadModuleAsync(module)).GetAwaiter().GetResult();
+        await LoadModuleAsync(module).ConfigureAwait(false);
     }
     
     public async Task LoadModuleAsync(IModule module)
@@ -52,6 +52,16 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
             logger.Warning($"Module {module.Name} is already loaded");
             return;
         }
+        
+        // Track services added during this module's initialization for potential rollback
+        var sharedServicesSnapshot = new ServiceCollection();
+        foreach (var descriptor in sharedServices)
+        {
+            sharedServicesSnapshot.Add(descriptor);
+        }
+        
+        ServiceProvider? moduleProvider = null;
+        var rollbackRequired = false;
         
         try
         {
@@ -69,6 +79,7 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
             
             // Register shared services
             module.RegisterSharedServices(sharedServices);
+            rollbackRequired = true; // Mark that we need rollback if failure occurs after this point
             
             // Create module-specific service collection
             var services = new ServiceCollection();
@@ -82,7 +93,7 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
             module.RegisterServices(services);
             
             // Build and store service provider
-            var moduleProvider = services.BuildServiceProvider();
+            moduleProvider = services.BuildServiceProvider();
             moduleInstance.ServiceProvider = moduleProvider;
             
             if (module is ModuleBase moduleBase)
@@ -91,19 +102,71 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
             }
             
             // Initialize with async support
-            await module.InitializeAsync();
+            await module.InitializeAsync().ConfigureAwait(false);
             
             moduleInstance.MarkAsRunning();
             moduleInstances.Add(moduleInstance);
             
             logger.Information($"Loaded module: {module.Name} v{module.Version}");
+            rollbackRequired = false; // Success, no rollback needed
         }
         catch (Exception ex)
         {
+            logger.Error(ex, $"Failed to load module: {module.Name}. Initiating cleanup.");
+            
+            // Perform cleanup/rollback
+            if (rollbackRequired)
+            {
+                try
+                {
+                    // Rollback shared services to the snapshot state
+                    sharedServices.Clear();
+                    foreach (var descriptor in sharedServicesSnapshot)
+                    {
+                        sharedServices.Add(descriptor);
+                    }
+                    
+                    logger.Information($"Rolled back shared services for failed module: {module.Name}");
+                }
+                catch (Exception rollbackEx)
+                {
+                    logger.Error(rollbackEx, $"Failed to rollback shared services for module: {module.Name}");
+                }
+            }
+            
+            // Dispose the service provider if it was created
+            if (moduleProvider != null)
+            {
+                try
+                {
+                    if (moduleProvider is IDisposable disposableProvider)
+                    {
+                        disposableProvider.Dispose();
+                    }
+                }
+                catch (Exception disposeEx)
+                {
+                    logger.Error(disposeEx, $"Failed to dispose service provider for module: {module.Name}");
+                }
+            }
+            
+            // Try to clean up the module if it partially initialized
+            if (module is IDisposable disposableModule)
+            {
+                try
+                {
+                    disposableModule.Dispose();
+                }
+                catch (Exception moduleDisposeEx)
+                {
+                    logger.Error(moduleDisposeEx, $"Failed to dispose module: {module.Name}");
+                }
+            }
+            
             moduleInstance.MarkAsFailed(ex);
             moduleInstances.Add(moduleInstance);
             
-            logger.Error(ex, $"Failed to load module: {module.Name}. Module marked as failed.");
+            logger.Error(ex, $"Module {module.Name} marked as failed after cleanup.");
         }
     }
     
@@ -187,14 +250,14 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
             var module = Registry.CreateModuleInstance(moduleName);
             if (module != null)
             {
-                await LoadModuleAsync(module);
+                await LoadModuleAsync(module).ConfigureAwait(false);
             }
         }
     }
     
-    public void LoadAllRegisteredModules(PluginConfiguration configuration)
+    public async Task LoadAllRegisteredModules(PluginConfiguration configuration)
     {
-        Task.Run(async () => await LoadAllRegisteredModulesAsync(configuration)).GetAwaiter().GetResult();
+        await LoadAllRegisteredModulesAsync(configuration).ConfigureAwait(false);
     }
     
     /// <summary>
@@ -382,7 +445,7 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
                         try
                         {
                             logger.Information($"Loading module {moduleName} due to configuration change");
-                            LoadModule(module);
+                            Task.Run(async () => await LoadModuleAsync(module).ConfigureAwait(false)).GetAwaiter().GetResult();
                         }
                         catch (Exception ex)
                         {
@@ -430,14 +493,14 @@ public class ModuleManager(IServiceProvider globalServices, IPluginLog logger) :
             if (instance.TryRecover())
             {
                 moduleInstances.Remove(instance);
-                await LoadModuleAsync(instance.Module);
+                await LoadModuleAsync(instance.Module).ConfigureAwait(false);
             }
         }
     }
     
-    public void RecoverFailedModules()
+    public async Task RecoverFailedModules()
     {
-        Task.Run(async () => await RecoverFailedModulesAsync()).GetAwaiter().GetResult();
+        await RecoverFailedModulesAsync().ConfigureAwait(false);
     }
     
     /// <summary>

@@ -16,7 +16,7 @@ public class ConfigurationWindow : Window, IDisposable
     private string selectedModuleName = string.Empty;
     
     public ConfigurationWindow(ModuleManager moduleManager, PluginConfiguration configuration) 
-        : base("TataruLink Configuration###TataruLinkConfig", ImGuiWindowFlags.None)
+        : base("Configuration###Config", ImGuiWindowFlags.None)
     {
         this.moduleManager = moduleManager ?? throw new ArgumentNullException(nameof(moduleManager));
         this.configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
@@ -61,9 +61,6 @@ public class ConfigurationWindow : Window, IDisposable
         
         if (LayoutHelpers.BeginSection("Plugin Information"))
         {
-            ImGui.Text("TataruLink - Translation Module System");
-            ImGui.TextDisabled("A modular translation plugin for FFXIV");
-            ImGui.Spacing();
             ImGui.Text($"Configuration Version: {configuration.Version}");
             LayoutHelpers.EndSection();
         }
@@ -143,12 +140,10 @@ public class ConfigurationWindow : Window, IDisposable
         
         using (var importPopup = ImRaii.Popup("ImportWarning"))
         {
-            if (importPopup)
-            {
-                ImGui.Text("Configuration import is not yet implemented.");
-                if (ImGui.Button("OK"))
-                    ImGui.CloseCurrentPopup();
-            }
+            if (!importPopup) return;
+            ImGui.Text("Configuration import is not yet implemented.");
+            if (ImGui.Button("OK"))
+                ImGui.CloseCurrentPopup();
         }
     }
     

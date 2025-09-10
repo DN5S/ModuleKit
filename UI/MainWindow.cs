@@ -16,7 +16,7 @@ public class MainWindow : Window, IDisposable
     private readonly Action openConfigWindow;
     
     public MainWindow(ModuleManager moduleManager, PluginConfiguration configuration, Action openConfigWindow) 
-        : base("TataruLink###TataruLinkMain", ImGuiWindowFlags.None)
+        : base("Main Window###Main", ImGuiWindowFlags.None)
     {
         this.moduleManager = moduleManager ?? throw new ArgumentNullException(nameof(moduleManager));
         this.configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
@@ -44,11 +44,11 @@ public class MainWindow : Window, IDisposable
     
     private void DrawHeader()
     {
-        ImGui.Text("TataruLink - Module Management System");
+        ImGui.Text("Module Management System");
         ImGui.SameLine();
         
         // Settings button on the right
-        var buttonWidth = 100;
+        const int buttonWidth = 100;
         ImGui.SetCursorPosX(ImGui.GetWindowWidth() - buttonWidth - ImGui.GetStyle().WindowPadding.X);
         
         if (ImGui.Button("Settings", new Vector2(buttonWidth, 0)))

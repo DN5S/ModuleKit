@@ -31,7 +31,7 @@ public class PersistenceMiddleware<TState>(
     private async Task DebouncedSave(long version)
     {
         // Cancel previous debounce timer
-        debounceCts?.Cancel();
+        await debounceCts?.CancelAsync()!;
         debounceCts?.Dispose();
         
         // Create a new cancellation token
@@ -66,7 +66,7 @@ public class PersistenceMiddleware<TState>(
     
     public async Task ForceSaveAsync()
     {
-        debounceCts?.Cancel();
+        await debounceCts?.CancelAsync()!;
         
         await saveSemaphore.WaitAsync();
         try

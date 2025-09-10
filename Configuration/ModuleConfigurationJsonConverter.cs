@@ -33,14 +33,25 @@ public class ModuleConfigurationJsonConverter : JsonConverter<ModuleConfiguratio
         
         if (!root.TryGetProperty(TypeDiscriminator, out var typeElement))
         {
-            // No type discriminator, deserialize as base class
-            return JsonSerializer.Deserialize<ModuleConfiguration>(root.GetRawText(), options);
+            // No type discriminator, deserialize as a base class with validation
+            var config = JsonSerializer.Deserialize<ModuleConfiguration>(root.GetRawText(), options);
+            ValidateDeserializedObject(config);
+            return config;
         }
         
         var typeName = typeElement.GetString();
         if (string.IsNullOrEmpty(typeName))
         {
-            return JsonSerializer.Deserialize<ModuleConfiguration>(root.GetRawText(), options);
+            var config = JsonSerializer.Deserialize<ModuleConfiguration>(root.GetRawText(), options);
+            ValidateDeserializedObject(config);
+            return config;
+        }
+        
+        // Sanitize type name to prevent path traversal or assembly loading attacks
+        if (typeName.Contains("..") || typeName.Contains("/") || typeName.Contains("\\") || 
+            typeName.Contains(",") || typeName.Contains("[") || typeName.Contains("]"))
+        {
+            throw new JsonException($"Invalid type name format: '{typeName}'. Potential security risk detected.");
         }
         
         // Only allow types from the safe registry
@@ -55,8 +66,36 @@ public class ModuleConfigurationJsonConverter : JsonConverter<ModuleConfiguratio
             throw new JsonException($"Type '{typeName}' does not derive from ModuleConfiguration");
         }
         
-        // Deserialize as the specific type
-        return (ModuleConfiguration?)JsonSerializer.Deserialize(root.GetRawText(), targetType, options);
+        // Additional security check: ensure the type is not a system type
+        if (targetType.Namespace?.StartsWith("System") == true || 
+            targetType.Namespace?.StartsWith("Microsoft") == true)
+        {
+            throw new JsonException($"Cannot deserialize system type '{typeName}' for security reasons");
+        }
+        
+        try
+        {
+            // Deserialize as the specific type with additional error handling
+            var result = (ModuleConfiguration?)JsonSerializer.Deserialize(root.GetRawText(), targetType, options);
+            ValidateDeserializedObject(result);
+            return result;
+        }
+        catch (Exception ex) when (ex is not JsonException)
+        {
+            // Wrap non-JSON exceptions to prevent information leakage
+            throw new JsonException($"Failed to deserialize configuration of type '{targetType.Name}'", ex);
+        }
+    }
+    
+    private static void ValidateDeserializedObject(ModuleConfiguration? config)
+    {
+        if (config == null) return;
+        
+        // Validate basic properties are within expected bounds
+        if (config.ModuleName.Length > 256)
+        {
+            throw new JsonException("Module name exceeds maximum length");
+        }
     }
     
     public override void Write(Utf8JsonWriter writer, ModuleConfiguration value, JsonSerializerOptions options)
